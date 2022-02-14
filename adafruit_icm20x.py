@@ -47,12 +47,19 @@ _ICM20948_DEVICE_ID = 0xEA  # Correct content of WHO_AM_I register
 # that the correct bank is set
 # Bank 0
 _ICM20X_WHO_AM_I = 0x00  # device_id register
+_ICM20X_USER_CTRL = 0x03
 _ICM20X_REG_BANK_SEL = 0x7F  # register bank selection register
 _ICM20X_PWR_MGMT_1 = 0x06  # primary power management register
 _ICM20X_ACCEL_XOUT_H = 0x2D  # first byte of accel data
 _ICM20X_GYRO_XOUT_H = 0x33  # first byte of accel data
 _ICM20X_I2C_MST_STATUS = 0x17  # I2C Microcontroller Status bits
 _ICM20948_EXT_SLV_SENS_DATA_00 = 0x3B
+_ICM20X_FIFO_EN_1 = 0x66
+_ICM20X_FIFO_EN_2 = 0x67
+_ICM20X_FIFO_RST = 0x68
+_ICM20X_FIFO_MODE = 0x69
+_ICM20X_FIFO_COUNTH = 0x70
+_ICM20X_FIFO_R_W = 0x72
 
 _ICM20X_USER_CTRL = 0x03  # User Control Reg. Includes I2C Microcontroller
 _ICM20X_LP_CONFIG = 0x05  # Low Power config
@@ -66,6 +73,7 @@ _ICM20X_GYRO_CONFIG_1 = 0x01
 _ICM20X_ACCEL_SMPLRT_DIV_1 = 0x10
 _ICM20X_ACCEL_SMPLRT_DIV_2 = 0x11
 _ICM20X_ACCEL_CONFIG_1 = 0x14
+_ICM20X_ACCEL_CONFIG_2 = 0x15
 
 
 # Bank 3
@@ -154,6 +162,9 @@ class ICM20X:  # pylint:disable=too-many-instance-attributes
     _low_power_en = RWBit(_ICM20X_PWR_MGMT_1, 5)
     _clock_source = RWBits(3, _ICM20X_PWR_MGMT_1, 0)
 
+    _DMP_en = RWBit(_ICM20X_USER_CTRL,7)
+    _FIFO_en = RWBit(_ICM20X_USER_CTRL,6)
+
     _raw_accel_data = Struct(_ICM20X_ACCEL_XOUT_H, ">hhh")  # ds says LE :|
     _raw_gyro_data = Struct(_ICM20X_GYRO_XOUT_H, ">hhh")
 
@@ -163,6 +174,15 @@ class ICM20X:  # pylint:disable=too-many-instance-attributes
     _accel_cycle_en = RWBit(_ICM20X_LP_CONFIG, 5)
     _gyro_cycle_en = RWBit(_ICM20X_LP_CONFIG, 4)
 
+    _FIFO_enable_temp = RWBit(_ICM20X_FIFO_EN_2, 0)
+    _FIFO_enable_girox = RWBit(_ICM20X_FIFO_EN_2, 1)
+    _FIFO_enable_giroy = RWBit(_ICM20X_FIFO_EN_2, 2)
+    _FIFO_enable_giroz = RWBit(_ICM20X_FIFO_EN_2, 3)
+    _FIFO_enable_accel = RWBit(_ICM20X_FIFO_EN_2, 4)
+    _FIFO_mode = RWBit(_ICM20X_FIFO_MODE, 0)
+    _raw_FIFO_count = Struct(_ICM20X_FIFO_COUNTH, ">H")
+    _raw_FIFO_R_W = Struct(_ICM20X_FIFO_R_W, ">H")
+
     # Bank 2
     _gyro_dlpf_enable = RWBits(1, _ICM20X_GYRO_CONFIG_1, 0)
     _gyro_range = RWBits(2, _ICM20X_GYRO_CONFIG_1, 1)
@@ -171,6 +191,7 @@ class ICM20X:  # pylint:disable=too-many-instance-attributes
     _accel_dlpf_enable = RWBits(1, _ICM20X_ACCEL_CONFIG_1, 0)
     _accel_range = RWBits(2, _ICM20X_ACCEL_CONFIG_1, 1)
     _accel_dlpf_config = RWBits(3, _ICM20X_ACCEL_CONFIG_1, 3)
+    _accel_DEC3_CFG_config = RWBits(3, _ICM20X_ACCEL_CONFIG_2, 0)
 
     # this value is a 12-bit register spread across two bytes, big-endian first
     _accel_rate_divisor = UnaryStruct(_ICM20X_ACCEL_SMPLRT_DIV_1, ">H")
@@ -249,6 +270,43 @@ class ICM20X:  # pylint:disable=too-many-instance-attributes
             sleep(0.0005)
 
     @property
+    def enable_accel_FIFO(self):
+        """enable FIFO for acceleration data"""
+
+        self._bank = 0
+        sleep(0.0005)
+        self._DMP_en = False
+        sleep(0.0005)
+        self._FIFO_en = True
+        sleep(0.0005)
+        self._FIFO_enable_girox = False
+        sleep(0.0005)
+        self._FIFO_enable_giroy = False
+        sleep(0.0005)
+        self._FIFO_enable_giroz = False
+        sleep(0.0005)
+        self._FIFO_enable_accel = True
+        sleep(0.0005)
+
+    @property
+    def disable_accel_FIFO(self):
+        """enable FIFO for acceleration data"""
+
+        self._bank = 0
+        self._DMP_en = False
+        sleep(0.0005)
+        self._FIFO_en = False
+        sleep(0.0005)
+        self._FIFO_enable_girox = False
+        sleep(0.0005)
+        self._FIFO_enable_giroy = False
+        sleep(0.0005)
+        self._FIFO_enable_giroz = False
+        sleep(0.0005)
+        self._FIFO_enable_accel = False
+        sleep(0.0005)
+
+    @property
     def _sleep(self):
         self._bank = 0
         sleep(0.0005)
@@ -281,6 +339,7 @@ class ICM20X:  # pylint:disable=too-many-instance-attributes
         are in :math:`degrees / second`"""
         self._bank = 0
         raw_gyro_data = self._raw_gyro_data
+
         x = self._scale_gyro_data(raw_gyro_data[0])
         y = self._scale_gyro_data(raw_gyro_data[1])
         z = self._scale_gyro_data(raw_gyro_data[2])
